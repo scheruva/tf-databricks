@@ -63,10 +63,14 @@ def import_notebook(local_path, workspace_path):
     # Encode the notebook content in base64
     encoded_content = base64.b64encode(notebook_content.encode('utf-8')).decode('utf-8')
 
+    #TODO: read the file extension and set the language
+    # PYTHON, SQL, SCALA
+    language="PYTHON"
+    
     # Prepare the API request payload
     payload = {
         "path": workspace_path,
-        "language": "PYTHON",  # Change this if your notebooks are in a different language
+        "language": language,
         "content": encoded_content,
         "overwrite": args.overwrite
     }
@@ -87,7 +91,7 @@ def import_notebook(local_path, workspace_path):
 # Iterate through the local directory and import each notebook
 for root, dirs, files in os.walk(args.local_dir):
     for file in files:
-        if file.endswith('.py') or file.endswith('.ipynb'):  # Adjust the extensions based on your notebook types
+        if file.endswith('.py') or file.endswith('.ipynb') or file.endswith('.sql') or file.endswith('.scala'):  # Adjust the extensions based on your notebook types
             local_file_path = os.path.join(root, file)
             relative_path = os.path.relpath(local_file_path, args.local_dir)
             workspace_file_path = os.path.join(args.workspace_base_path, relative_path).replace("\\", "/")  # Ensure correct path format for Databricks
