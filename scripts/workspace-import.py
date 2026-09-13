@@ -9,7 +9,7 @@ import argparse
 
 # Example: python3 workspace-import.py \
 #             --databricks-url https://your.cloud.databricks.com \
-#             --databricks-token dapi123456789abcdef123456789abcdef12 \
+#             --databricks-token CHANGE_ME \
 #             --local-dir ~/Documents/Source/pytest/databricks/notebooks \
 #             --workspace-base-path /ops/develop/1.0.0
 
