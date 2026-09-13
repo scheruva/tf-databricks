@@ -161,5 +161,5 @@ deploy-new-develop-version:
   rules:
     - if: '$CI_COMMIT_BRANCH != "main"'
       when: never
-    - when: on_success
+    - when: manual
 
