@@ -1,0 +1,165 @@
+image: registry.gitlab.com/gitlab-org/terraform-images/stable:latest
+
+variables:
+  TF_STATE_NAME: "dev"
+  PLAN_CACHE: "${CI_PROJECT_DIR}/terraform/plan.cache"
+  PLAN_JSON: "${CI_PROJECT_DIR}/terraform/plan.json"
+
+cache:
+  key: ${TF_STATE_NAME}
+  paths:
+    - ${CI_PROJECT_DIR}/terraform/.terraform
+
+stages:
+  - sync-develop
+  - deploy-databricks
+  - increment-develop
+
+.set-tf-root:
+  script:
+    - cd ${CI_PROJECT_DIR}/terraform/
+
+workflow:
+  name: "$GITLAB_USER_LOGIN - $CI_COMMIT_BRANCH - $CI_COMMIT_TITLE"
+
+
+##########################
+# sync-develop #
+##########################
+sync-from-develop:
+  stage: sync-develop
+  image: python:3.11
+  allow_failure: true
+  before_script:
+    - pip install requests
+    - git --version
+  script:
+    - echo "+++++++++++++ SYNC DEVELOP +++++++++++++++++++++"
+    - pwd; ls -al;
+    - TODO invoke python script to sync from develop to the gitlab repo on this branch
+  rules:
+    - if: '$CI_COMMIT_BRANCH != "main"'
+      when: never
+    - when: manual
+
+
+##########################
+# deploy-databricks #
+##########################
+01-tf-init:
+  stage: deploy-databricks
+  script:
+    - !reference [.set-tf-root, script]
+    - gitlab-terraform init
+    - gitlab-terraform validate
+  when: manual
+
+02-tf-build:
+  stage: deploy-databricks
+  dependencies:
+    - 01-tf-init
+  needs:
+    - job: 01-tf-init
+  script:
+    - !reference [.set-tf-root, script]
+    - ls -al; pwd;
+    - gitlab-terraform plan -var databricks_host=$DATABRICKS_HOST -var databricks_token=$DATABRICKS_TOKEN -out=${PLAN_CACHE}
+    - gitlab-terraform plan-json
+  environment:
+    name: $TF_STATE_NAME
+  artifacts:
+    name: plan
+    paths:
+      - ${PLAN_CACHE}
+      - ${PLAN_JSON}
+    reports:
+      terraform: ${PLAN_JSON}
+
+03-tf-deploy:
+  stage: deploy-databricks
+  dependencies:
+    - 02-tf-build
+  needs:
+    - job: 02-tf-build
+  environment:
+    name: $TF_STATE_NAME
+  script:
+    - !reference [.set-tf-root, script]
+    - echo "+++++++++++++ TF DEPLOY +++++++++++++++++++++"
+    - pwd; ls -al;
+    - gitlab-terraform apply
+
+tf-destroy:
+  stage: deploy-databricks
+  dependencies:
+    - 03-tf-deploy
+  needs:
+    - job: 03-tf-deploy
+  environment:
+    name: $TF_STATE_NAME
+  script:
+    - !reference [.set-tf-root, script]
+    - gitlab-terraform destroy -var databricks_host=$DATABRICKS_HOST -var databricks_token=$DATABRICKS_TOKEN
+  when: manual
+
+
+##########################
+# increment-develop #
+##########################
+deploy-new-develop-version:
+  stage: increment-develop
+  image: python:3.11
+  dependencies:
+    - 03-tf-deploy
+  needs:
+    - job: 03-tf-deploy
+  environment:
+    name: $TF_STATE_NAME
+  before_script:
+    - pip install requests
+    - git --version
+  script:
+    - echo "+++++++++++++ DEV DEPLOY +++++++++++++++++++++"
+    - pwd; ls -al;
+    - |
+      # get variables from terraform.tfvars
+      terraform_vars="${CI_PROJECT_DIR}/terraform/terraform.tfvars"
+      released_version=$(sed -n 's/^release_version[[:space:]]*=[[:space:]]*"\([^"]*\)"/\1/p' "${terraform_vars}")
+      develop_base_path=$(sed -n 's/^databricks_workspace_develop_base_path[[:space:]]*=[[:space:]]*"\([^"]*\)"/\1/p' "${terraform_vars}")
+      echo "Released version: ${released_version}"
+
+      # extract major, minor, and patch versions
+      IFS=. read -r major minor patch <<< "${released_version}"
+      echo "Major: ${major}, Minor: ${minor}, Patch: ${patch}"
+      
+      # Increment the minor version by 1
+      new_minor=$((minor + 1))
+      
+      # Construct the new version string
+      new_version="${major}.${new_minor}.0"
+      echo "New version: ${new_version}"
+      
+      # Update the release_version variable in terraform.tfvars
+      sed -i "s/release_version *= *\"[^\"]*\"/release_version = \"${new_version}\"/" ${CI_PROJECT_DIR}/terraform/terraform.tfvars
+      
+      echo "Updated terraform.tfvars:"
+      cat ${CI_PROJECT_DIR}/terraform/terraform.tfvars
+      
+      echo "Importing notebooks to Databricks develop workspace..."
+      python3 ${CI_PROJECT_DIR}/scripts/workspace-import.py \
+                    --databricks-url "https://${DATABRICKS_HOST}" \
+                    --databricks-token "${DATABRICKS_TOKEN}" \
+                    --local-dir "${CI_PROJECT_DIR}/notebooks" \
+                    --workspace-base-path "${develop_base_path}/${new_version}"
+
+      # commit the changes to terraform.tfvars
+      git config --global user.email "$GITLAB_USER_LOGIN@example.com"
+      git config --global user.name "$GITLAB_USER_LOGIN"
+      git add ${CI_PROJECT_DIR}/terraform/terraform.tfvars
+      git commit -m "Updated next release version to ${new_version}"
+      git push origin "HEAD:${CI_COMMIT_BRANCH}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH != "main"'
+      when: never
+    - when: on_success
+
