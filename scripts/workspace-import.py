@@ -3,13 +3,14 @@ import json
 import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from pathlib import Path
 import argparse
 
 # Description: This script imports Databricks notebooks from a local directory to a specified Databricks workspace path.
 
 # Example: python3 workspace-import.py \
 #             --databricks-url https://your.cloud.databricks.com \
-#             --databricks-token CHANGE_ME \
+#             --databricks-token dapi123456789abcdef123456789abcdef12 \
 #             --local-dir ~/Documents/Source/pytest/databricks/notebooks \
 #             --workspace-base-path /ops/develop/1.0.0
 
@@ -59,13 +60,18 @@ def import_notebook(local_path, workspace_path):
     # Read the notebook content
     with open(local_path, 'r', encoding='utf-8') as f:
         notebook_content = f.read()
+        notebook_extension = Path(f.name).suffix
 
     # Encode the notebook content in base64
     encoded_content = base64.b64encode(notebook_content.encode('utf-8')).decode('utf-8')
 
-    #TODO: read the file extension and set the language
-    # PYTHON, SQL, SCALA
-    language="PYTHON"
+    # set language based on file extension
+    if notebook_extension == ".ipynb" or notebook_extension == ".py":
+        language = "PYTHON"
+    if notebook_extension == ".sql":
+        language = "SQL"
+    if notebook_extension == ".scala":
+        language = "SCALA"
     
     # Prepare the API request payload
     payload = {
@@ -91,7 +97,7 @@ def import_notebook(local_path, workspace_path):
 # Iterate through the local directory and import each notebook
 for root, dirs, files in os.walk(args.local_dir):
     for file in files:
-        if file.endswith('.py') or file.endswith('.ipynb') or file.endswith('.sql') or file.endswith('.scala'):  # Adjust the extensions based on your notebook types
+        if file.endswith('.py') or file.endswith('.ipynb'):  # Adjust the extensions based on your notebook types
             local_file_path = os.path.join(root, file)
             relative_path = os.path.relpath(local_file_path, args.local_dir)
             workspace_file_path = os.path.join(args.workspace_base_path, relative_path).replace("\\", "/")  # Ensure correct path format for Databricks
