@@ -21,3 +21,13 @@ resource "databricks_job" "main_job" {
 
   performance_target = "PERFORMANCE_OPTIMIZED"
 }
+
+output "job_id" {
+  description = "The ID of the main Databricks job"
+  value       = databricks_job.main_job.id
+}
+
+output "job_url" {
+  description = "The web URL to manage or view the main Databricks job"
+  value       = databricks_job.main_job.url
+}
